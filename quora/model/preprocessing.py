@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 import re
@@ -7,6 +8,34 @@ from nltk.stem import SnowballStemmer
 import numpy as np
 from keras_preprocessing.text import Tokenizer
 import codecs
+import configparser
+import os
+
+
+class ConfigFile(object):
+    def __init__(self, file):
+        self.cf = configparser.SafeConfigParser()
+        self.file = os.path.expanduser(file)
+        self.cf.read(self.file)
+        if (not self.cf.has_section("base")):
+            self.cf.add_section('base')
+
+    def Update(self):
+        cfgfile = open(self.file, 'w')
+        self.cf.write(cfgfile)
+        cfgfile.close()
+
+    def getlist(self, section, option):
+        value = self.cf.get(section, option)
+        return [x.strip() for x in value.split(",")]
+
+    def getintlist(self, section, option):
+        return [int(x) for x in self.getlist(section, option)]
+
+    def getfloatlist(self, section, option):
+        return [float(x) for x in self.getlist(section, option)]
+
+
 
 
 # TextPerProcessor git clone from https://github.com/HouJP/kaggle-quora-question-pairs/blob/master/bin/preprocessor.py
@@ -243,14 +272,15 @@ gg = train_data.batch_generator(batch_size=30)
         self.inputs.is_duplicate = self.inputs.is_duplicate.map(
                                    lambda x: [1, 0] if x == 0 else [0, 1])
 
-    def batch_generator(self, batch_size=50, frac=0.9):
-        dis_dup_df = self.inputs[self.df.is_duplicate == 0]
-        is_dup_df = self.inputs[self.df.is_duplicate == 1]
-        dis_dup_partial = dis_dup_df.sample(
+    def batch_generator(self, batch_size=50, frac=1.0, equal=True, add_y=True):
+        if equal is True:
+            dis_dup_df = self.inputs[self.df.is_duplicate == 0]
+            is_dup_df = self.inputs[self.df.is_duplicate == 1]
+            dis_dup_partial = dis_dup_df.sample(
                             frac=float(len(is_dup_df)) / len(dis_dup_df))
-        df = pd.concat(
-            [dis_dup_partial, is_dup_df], ignore_index=True).sample(frac=frac)
-        df = df.reset_index(drop=True)
+            df = pd.concat([dis_dup_partial, is_dup_df],
+                           ignore_index=True).sample(frac=frac)
+        df = df.sample(frac=frac).reset_index(drop=True)
         df = df.loc[0:len(df) // batch_size * batch_size - 1, :]
         while True:
             for i in range(0, len(df), batch_size):
@@ -258,9 +288,12 @@ gg = train_data.batch_generator(batch_size=30)
                     df.loc[i:i+batch_size-1, "question1"]), dtype=np.int32)
                 question2 = np.array(list(
                     df.loc[i:i+batch_size-1, "question2"]), dtype=np.int32)
-                is_duplicate = np.array(list(
-                    df.loc[i:i+batch_size-1, "is_duplicate"]), dtype=np.int32)
-                yield question1, question2, is_duplicate
+                if add_y is True:
+                    is_duplicate = np.array(list(
+                     df.loc[i:i+batch_size-1, "is_duplicate"]), dtype=np.int32)
+                    yield question1, question2, is_duplicate
+                else:
+                    yield question1, question2
 
     def length_dist(self, plot=False, top_n=0.999):
         """

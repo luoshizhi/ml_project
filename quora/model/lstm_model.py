@@ -1,32 +1,36 @@
+# -*- coding: utf-8 -*-
 import tensorflow as tf
 import inspect
 import preprocessing
+from preprocessing import ConfigFile
 import time
+import sys
 
-TRAIN_BATCH_SIZE = 64
-VOCAB_SIZE = 10000
-TRAIN_NUM_STEP = 35
-HIDDEN_SIZE = 128
-NUM_LAYERS = 3
-MLP_DIMENSION = [128, 2]
+config = ConfigFile(sys.argv[2])
+
+TRAIN_BATCH_SIZE = config.cf.getint("base", "TRAIN_BATCH_SIZE")
+VOCAB_SIZE = config.cf.getint("base", "VOCAB_SIZE")
+TRAIN_NUM_STEP = config.cf.getint("base", "TRAIN_NUM_STEP")
+HIDDEN_SIZE = config.cf.getint("base", "HIDDEN_SIZE")
+NUM_LAYERS = config.cf.getint("base", "NUM_LAYERS")
+MLP_DIMENSION = config.getintlist("base", "MLP_DIMENSION")
 
 
-NUM_EPOCH = 2
-KEEP_PROB = 0.5
-EMBEDDING_KEEP_PROB = 0.5
-MAX_GRAD_NORM = 5
-LEARNING_RATE = 1.0
-EVAL_BATCH_SIZE = 1
+NUM_EPOCH = config.cf.getint("base", "NUM_EPOCH")
+KEEP_PROB = config.cf.getfloat("base", "KEEP_PROB")
+EMBEDDING_KEEP_PROB = config.cf.getfloat("base", "EMBEDDING_KEEP_PROB")
+MAX_GRAD_NORM = config.cf.getint("base", "MAX_GRAD_NORM")
+LEARNING_RATE = config.cf.getfloat("base", "LEARNING_RATE")
+EVAL_BATCH_SIZE = config.cf.getint("base", "EVAL_BATCH_SIZE")
 
 
 class QuoraModel(object):
     def __init__(self, vocab_size, is_trainning, batch_size, num_step,
-                 hidden_size, train_keep_prob, num_layers):
+                 hidden_size, num_layers):
         self.vocab_size = vocab_size
         self.is_trainning = is_trainning
         self.num_step = num_step
         self.hidden_size = hidden_size
-        self.train_keep_prob = train_keep_prob
         self.num_layers = num_layers
         self.batch_size = batch_size
 
@@ -158,11 +162,12 @@ class QuoraModel(object):
             in_dim = layer_dimension[i]
         return cur_layer
 
-
+'''
 def run_epoch(session, model, batches, keep_prob, eval_op=None, verbose=True):
-    fetches = [model.loss, model.accuracy, model.predict,
-               model.predict_class,  model.target_class, model.out_merge,
-               model.Wx_plus_b, model.layers]
+    # fetches = [model.loss, model.accuracy, model.predict,
+    #           model.predict_class,  model.target_class, model.out_merge,
+    #            model.Wx_plus_b, model.layers]
+    fetches = [model.loss, model.accuracy]
     seq1_state = session.run(model.seq1_initial_state)
     seq2_state = session.run(model.seq2_initial_state)
     step = 0
@@ -177,7 +182,6 @@ def run_epoch(session, model, batches, keep_prob, eval_op=None, verbose=True):
                 model.seq1_initial_state: seq1_state,
                 model.seq2_initial_state: seq2_state}
         res = session.run(fetches, feed_dict=feed)
-        step += 1
 
         if verbose is True and step % 100 == 0:
             end = time.time()
@@ -185,8 +189,8 @@ def run_epoch(session, model, batches, keep_prob, eval_op=None, verbose=True):
                    "loss: {:.4f}...".format(res[0]),
                    "accuracy:{:.4f}...".format(res[1]),
                    # "predict:{0}...".format(res[2]),
-                   "predict_class{0}...".format(res[3]),
-                   "target_class{0}...".format(res[4]),
+                   # "predict_class{0}...".format(res[3]),
+                   # "target_class{0}...".format(res[4]),
                    # "out_merge{0}...".format(res[5]),
                    # "Wx_plus_b{0}...".format(res[6]),
                    # "layer{0}...".format(res[7]),
@@ -194,20 +198,97 @@ def run_epoch(session, model, batches, keep_prob, eval_op=None, verbose=True):
             start = time.time()
 #            return res
     return res
+'''
+
+
+def run_predict(session, model, data, batch_size=None, method="predict",
+                save_path=""):
+    if not batch_size:
+        batch_size = 1
+    seq1_state = seq2_state = session.run(
+                            model.seq1_initial_state)
+    if method == "predict":
+        fetches = [model.predict_class]
+        generator = data.batch_generator(
+                        batch_size=batch_size, add_y=False)
+    elif method == "valid":
+        fetches = [model.loss, model.accuracy]
+        generator = data.batch_generator(
+                        batch_size=batch_size, add_y=True)
+    batches_num = 0
+    loss = 0.0
+    accuracy = 0.0
+    for x in generator:
+        feed = {model.seq1_inputs: x[0],
+                model.seq2_inputs: x[1],
+                model.keep_prob: 1.0,
+                model.seq1_initial_state:
+                seq1_state,
+                model.seq2_initial_state:
+                seq2_state}
+        if method == "valid":
+            feed[model.targets] = x[2]
+        res = session.run(fetches, feed_dict=feed)
+        if method == "valid":
+            batches_num += 1
+            loss += res[0]
+            accuracy += res[1]
+    if method == "predict":
+        return (None, None)
+        pass
+    if method == "valid":
+        loss = loss / batches_num
+        accuracy = accuracy / batches_num
+    return loss, accuracy
+
+
+def run_model(session, is_trainning, train_model,
+              valid_model, train_data, valid_data):
+    train_model_seq1_state = train_model_seq2_state = session.run(
+                            train_model.seq1_initial_state)
+    train_fetches = [train_model.loss,
+                     train_model.accuracy,
+                     train_model.optimizer]
+    step = 0
+    for i in range(NUM_EPOCH):
+        train_batches = train_data.batch_generator(
+                        batch_size=TRAIN_BATCH_SIZE)
+        print("In iteration: %d" % (i + 1))
+        start = time.time()
+        for x1, x2, y in train_batches:
+            feed = {train_model.seq1_inputs: x1,
+                    train_model.seq2_inputs: x2,
+                    train_model.targets: y,
+                    train_model.keep_prob: KEEP_PROB,
+                    train_model.seq1_initial_state:
+                    train_model_seq1_state,
+                    train_model.seq2_initial_state:
+                    train_model_seq2_state}
+            train_res = session.run(train_fetches, feed_dict=feed)
+            step += 1
+            if step % 100 == 0:
+                valid_loss, valid_accuracy = run_predict(
+                    session, valid_model, valid_data, method="valid")
+                end = time.time()
+                print ("step:{0}...".format(step),
+                       "loss: {:.4f}...".format(train_res[0]),
+                       "train_accuracy:{:.4f}...".format(train_res[1]),
+                       "test_accuracy:{:.4f}...".format(valid_accuracy),
+                       "{:.4f} sec/100 batches".format((end - start)),)
+                start = time.time()
 
 
 def main():
     initializer = tf.random_uniform_initializer(-1.0, 1.0)
-    train_data = preprocessing.TextConverter("../data/train_clean_text.csv")
+    train_data = preprocessing.TextConverter(sys.argv[1])
     train_data.build_word_index(
                 vocab_size=VOCAB_SIZE,
-                save_path="../data/train.vocab"+str(VOCAB_SIZE)
-                )
+                save_path="../data/train.vocab"+str(VOCAB_SIZE))
     train_data.tran_word_to_index()
     train_data.save("../data/train_word_to_index" + str(VOCAB_SIZE) + ".csv")
     train_data.cut_padding(cut_size=TRAIN_NUM_STEP, padding="left")
     train_data.format_inputs()
-
+    valid_data = ""
     with tf.variable_scope("model", reuse=None, initializer=initializer):
         train_model = QuoraModel(
                                 vocab_size=VOCAB_SIZE,
@@ -215,37 +296,21 @@ def main():
                                 batch_size=TRAIN_BATCH_SIZE,
                                 num_step=TRAIN_NUM_STEP,
                                 hidden_size=HIDDEN_SIZE,
-                                train_keep_prob=KEEP_PROB,
                                 num_layers=NUM_LAYERS
                                 )
     with tf.variable_scope("model", reuse=True, initializer=initializer):
-        test_model = QuoraModel(
+        valid_model = QuoraModel(
                                 vocab_size=VOCAB_SIZE,
                                 is_trainning=False,
                                 batch_size=TRAIN_BATCH_SIZE,
                                 num_step=TRAIN_NUM_STEP,
                                 hidden_size=HIDDEN_SIZE,
-                                train_keep_prob=1,
                                 num_layers=NUM_LAYERS
                                 )
     with tf.Session() as session:
         tf.global_variables_initializer().run()
-        for i in range(NUM_EPOCH):
-            train_batches = train_data.batch_generator(
-                            batch_size=TRAIN_BATCH_SIZE)
-            print("In iteration: %d" % (i + 1))
-            res = run_epoch(session,
-                            train_model,
-                            train_batches,
-                            keep_prob=0.5,
-                            eval_op=train_model.optimizer,
-                            verbose=True)
-    return res
-#            _, train_loss, train_accuracy, _= run_epoch(session,
-#                                                        test_model,
-#                                                        train_batches,keep_prob=1
-#                                                        None,
-#                                                        verbose=True)
+        run_model(session, True, train_model,
+                  valid_model, train_data, valid_data)
 
 
 if __name__ == "__main__":
