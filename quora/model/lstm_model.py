@@ -303,9 +303,6 @@ def run_model(session, is_trainning, train_model,
                                                     valid_accuracy,
                                                     end - start))
                 start = time.time()
-                saver.save(session, os.path.join(
-                    CHECKPOINT_PATH, "model"), global_step=step)
-                return
         # save model
         saver.save(session,
                    os.path.join(CHECKPOINT_PATH, "model"), global_step=step)
