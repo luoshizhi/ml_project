@@ -5,6 +5,7 @@ import preprocessing
 from preprocessing import ConfigFile
 import time
 import sys
+import csv
 
 config = ConfigFile(sys.argv[1])
 
@@ -25,6 +26,8 @@ EMBEDDING_KEEP_PROB = config.cf.getfloat("base", "EMBEDDING_KEEP_PROB")
 MAX_GRAD_NORM = config.cf.getint("base", "MAX_GRAD_NORM")
 LEARNING_RATE = config.cf.getfloat("base", "LEARNING_RATE")
 EVAL_BATCH_SIZE = config.cf.getint("base", "EVAL_BATCH_SIZE")
+
+CHECKPOINT_PATH = config.cf.get("base", "CHECKPOINT_PATH")
 
 
 class QuoraModel(object):
@@ -205,43 +208,46 @@ def run_epoch(session, model, batches, keep_prob, eval_op=None, verbose=True):
 
 
 def run_predict(session, model, data, method="predict",
-                save_path=""):
+                save_path="./sample_submission.csv"):
+    if method == "predict":
+        csvfile = open(save_path, 'w')
+        writer = csv.writer(csvfile)
+        writer.writerow([data.df.columns[0], "is_duplicate"])
     seq1_state = seq2_state = session.run(
                             model.seq1_initial_state)
-    if method == "predict":
-        fetches = [model.predict_class]
-    elif method == "valid":
-        fetches = [model.loss, model.accuracy]
+    fetches = [model.predict_class]
+
+    if method == "valid":
+        fetches.extend([model.loss, model.accuracy])
+
     generator = data.batch_generator(batch_size=model.batch_size)
+
     batches_num = 0
     loss = 0.0
     accuracy = 0.0
-    start = time.time()
-    aa=0
-    for x in generator:
-        aa += 1
-        feed = {model.seq1_inputs: x[0],
-                model.seq2_inputs: x[1],
+
+    for ids, q1, q2, y in generator:
+        feed = {model.seq1_inputs: q1,
+                model.seq2_inputs: q2,
                 model.keep_prob: 1.0,
                 model.seq1_initial_state:
                 seq1_state,
                 model.seq2_initial_state:
                 seq2_state}
-        print (x[0].shape)
         if method == "valid":
-            feed[model.targets] = x[2]
+            feed[model.targets] = y
         res = session.run(fetches, feed_dict=feed)
-        print (aa)
         if method == "valid":
             batches_num += 1
-            loss += res[0]
-            accuracy += res[1]
-        end = time.time()
-        print (res, end-start)
-        start = time.time()
+            loss += res[1]
+            accuracy += res[2]
+        if method == "predict":
+            for i in range(len(ids)):
+                writer.writerow([ids[i], res[0][i]])
+
     if method == "predict":
+        csvfile.close()
         return (None, None)
-        pass
     if method == "valid":
         loss = loss / batches_num
         accuracy = accuracy / batches_num
@@ -249,7 +255,7 @@ def run_predict(session, model, data, method="predict",
 
 
 def run_model(session, is_trainning, train_model,
-              valid_model, train_data, valid_data):
+              valid_model, train_data, valid_data, saver):
     train_model_seq1_state = train_model_seq2_state = session.run(
                             train_model.seq1_initial_state)
     train_fetches = [train_model.loss,
@@ -258,10 +264,11 @@ def run_model(session, is_trainning, train_model,
     step = 0
     for i in range(NUM_EPOCH):
         train_batches = train_data.batch_generator(
-                        batch_size=train_model.batch_size, equal=True)
+                        batch_size=train_model.batch_size,
+                        shuffle=True, equal=True)
         print("In iteration: %d" % (i + 1))
         start = time.time()
-        for x1, x2, y in train_batches:
+        for _, x1, x2, y in train_batches:
             feed = {train_model.seq1_inputs: x1,
                     train_model.seq2_inputs: x2,
                     train_model.targets: y,
@@ -273,7 +280,7 @@ def run_model(session, is_trainning, train_model,
             train_res = session.run(train_fetches, feed_dict=feed)
             step += 1
             #print (train_res)
-            if step % 20 == 0:
+            if step % 200 == 0:
                 print (train_res)
                 #"""
                 valid_loss, valid_accuracy = run_predict(
@@ -285,7 +292,10 @@ def run_model(session, is_trainning, train_model,
                        "test_accuracy:{:.4f}...".format(valid_accuracy),
                        "{:.4f} sec/100 batches".format((end - start)),)
                 start = time.time()
-                #"""
+        # save model
+        saver.save(session, CHECKPOINT_PATH, global_step=step)
+    saver.save(session, CHECKPOINT_PATH, global_step=step)
+    return
 
 
 def process(file, save_train, save_valid, valid_ratio=0.1):
@@ -305,11 +315,20 @@ def process(file, save_train, save_valid, valid_ratio=0.1):
     return
 
 
+def process_test():
+    test_data = preprocessing.TextConverter("test_reduplicate.csv")
+    test_data.load_word_index(file_path="../data/train.vocab")
+    test_data.preprocess()
+    test_data.save("../data/test_redu_clean_text.csv")
+    test_data.tran_word_to_index()
+    test_data.save("../data/test_redu_word_to_index.csv")
+
+
 def main():
     initializer = tf.random_uniform_initializer(-1.0, 1.0)
 
-    #process("../data/train_clean_text.csv", "../data/train_word_to_index10000_0.9.csv","../data/valid_word_to_index10000_0.1.csv")
-    #return
+    # process("../data/train_clean_text.csv", "../data/train_word_to_index10000_0.9.csv","../data/valid_word_to_index10000_0.1.csv")
+    # return
     train_data = preprocessing.TextConverter(TRAIN_DATA)
     train_data.cut_padding(cut_size=TRAIN_NUM_STEP, padding="left")
     train_data.format_inputs()
@@ -319,14 +338,8 @@ def main():
     valid_data.format_inputs()
 
     test_data = preprocessing.TextConverter(TEST_DATA)
-    test_data.load_word_index(file_path="../data/train.vocab")
-    test_data.preprocess()
-    test_data.save("../data/test_redu_clean_text.csv")
-    test_data.tran_word_to_index()
-    test_data.save("../data/test_redu_word_to_index.csv")
     test_data.cut_padding(cut_size=TRAIN_NUM_STEP, padding="left")
     test_data.format_inputs()
-    return
     with tf.variable_scope("model", reuse=None, initializer=initializer):
         train_model = QuoraModel(
                                 vocab_size=VOCAB_SIZE,
@@ -354,10 +367,13 @@ def main():
                                 hidden_size=HIDDEN_SIZE,
                                 num_layers=NUM_LAYERS
                                 )
+    saver = tf.train.Saver()
     with tf.Session() as session:
         tf.global_variables_initializer().run()
         run_model(session, True, train_model,
-                  valid_model, train_data, valid_data)
+                  valid_model, train_data, valid_data, saver)
+        run_predict(session, predict_model, test_data, method="predict",
+                    save_path="./sample_submission.csv")
 
 
 if __name__ == "__main__":

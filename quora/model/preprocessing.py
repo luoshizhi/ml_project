@@ -267,7 +267,8 @@ gg = train_data.batch_generator(batch_size=30)
 
     def format_inputs(self):
         self.inputs = self.df.loc[:,
-                                  ["question1", "question2", "is_duplicate"]]
+                                  [self.df.columns[0], "question1",
+                                   "question2", "is_duplicate"]]
         self.inputs.question1 = self.inputs.question1.map(lambda x: x.split())
         self.inputs.question2 = self.inputs.question2.map(lambda x: x.split())
         try:
@@ -276,7 +277,8 @@ gg = train_data.batch_generator(batch_size=30)
         except AttributeError:
             pass
 
-    def batch_generator(self, batch_size=50, frac=1.0, equal=False):
+    def batch_generator(self, batch_size=50, shuffle=False,
+                        frac=1.0, equal=False):
         if equal is True:
             try:
                 dis_dup_df = self.inputs[self.df.is_duplicate == 0]
@@ -289,9 +291,12 @@ gg = train_data.batch_generator(batch_size=30)
                 df = self.inputs
         else:
             df = self.inputs
-        df = df.sample(frac=frac).reset_index(drop=True)
+        if shuffle:
+            df = df.sample(frac=frac).reset_index(drop=True)
         df = df.loc[0:len(df) // batch_size * batch_size - 1, :]
         for i in range(0, len(df), batch_size):
+            ids = np.array(list(
+                df.loc[i:i+batch_size-1, self.df.columns[0]]), dtype=np.int32)
             question1 = np.array(list(
                 df.loc[i:i+batch_size-1, "question1"]), dtype=np.int32)
             question2 = np.array(list(
@@ -299,9 +304,9 @@ gg = train_data.batch_generator(batch_size=30)
             try:
                 is_duplicate = np.array(list(
                  df.loc[i:i+batch_size-1, "is_duplicate"]), dtype=np.int32)
-                yield question1, question2, is_duplicate
+                yield ids, question1, question2, is_duplicate
             except KeyError:
-                yield question1, question2
+                yield ids, question1, question2, None
 
     def length_dist(self, plot=False, top_n=0.999):
         """
