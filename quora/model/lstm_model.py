@@ -6,6 +6,7 @@ from preprocessing import ConfigFile
 import time
 import sys
 import csv
+import os
 
 config = ConfigFile(sys.argv[1])
 
@@ -18,7 +19,7 @@ TRAIN_NUM_STEP = config.cf.getint("base", "TRAIN_NUM_STEP")
 HIDDEN_SIZE = config.cf.getint("base", "HIDDEN_SIZE")
 NUM_LAYERS = config.cf.getint("base", "NUM_LAYERS")
 MLP_DIMENSION = config.getintlist("base", "MLP_DIMENSION")
-
+STAT_STEP = config.cf.getint("base", "STAT_STEP")
 
 NUM_EPOCH = config.cf.getint("base", "NUM_EPOCH")
 KEEP_PROB = config.cf.getfloat("base", "KEEP_PROB")
@@ -27,7 +28,8 @@ MAX_GRAD_NORM = config.cf.getint("base", "MAX_GRAD_NORM")
 LEARNING_RATE = config.cf.getfloat("base", "LEARNING_RATE")
 EVAL_BATCH_SIZE = config.cf.getint("base", "EVAL_BATCH_SIZE")
 
-CHECKPOINT_PATH = config.cf.get("base", "CHECKPOINT_PATH")
+OUTDIR = config.cf.get("base", "OUTDIR")
+CHECKPOINT_PATH = os.path.join(OUTDIR, "model")
 
 
 class QuoraModel(object):
@@ -262,6 +264,10 @@ def run_model(session, is_trainning, train_model,
                      train_model.accuracy,
                      train_model.optimizer]
     step = 0
+    f = open(os.path.join(OUTDIR, "stat.txt"), "w")
+    info = "step\tloss\ttrain_accuracy\tvalid_accuracy\tsec/{}batches".format(
+        STAT_STEP)
+    f.write(info+"\n")
     for i in range(NUM_EPOCH):
         train_batches = train_data.batch_generator(
                         batch_size=train_model.batch_size,
@@ -279,22 +285,33 @@ def run_model(session, is_trainning, train_model,
                     train_model_seq2_state}
             train_res = session.run(train_fetches, feed_dict=feed)
             step += 1
-            #print (train_res)
-            if step % 200 == 0:
+            if step % STAT_STEP == 0:
                 print (train_res)
-                #"""
                 valid_loss, valid_accuracy = run_predict(
                     session, valid_model, valid_data, method="valid")
                 end = time.time()
                 print ("step:{0}...".format(step),
                        "loss: {:.4f}...".format(train_res[0]),
                        "train_accuracy:{:.4f}...".format(train_res[1]),
-                       "test_accuracy:{:.4f}...".format(valid_accuracy),
-                       "{:.4f} sec/100 batches".format((end - start)),)
+                       "valid_accuracy:{:.4f}...".format(valid_accuracy),
+                       "{0:.4f} sec/{1}batches".format(
+                                                (end - start), STAT_STEP))
+                f.write("{0}\t{1}\t{2}\t{3}\t{4}".format(
+                                                    step,
+                                                    train_res[0],
+                                                    train_res[1],
+                                                    valid_accuracy,
+                                                    end - start))
                 start = time.time()
+                saver.save(session, os.path.join(
+                    CHECKPOINT_PATH, "model"), global_step=step)
+                return
         # save model
-        saver.save(session, CHECKPOINT_PATH, global_step=step)
-    saver.save(session, CHECKPOINT_PATH, global_step=step)
+        saver.save(session,
+                   os.path.join(CHECKPOINT_PATH, "model"), global_step=step)
+    saver.save(session,
+               os.path.join(CHECKPOINT_PATH, "model"), global_step=step)
+    f.close()
     return
 
 
@@ -368,13 +385,15 @@ def main():
                                 num_layers=NUM_LAYERS
                                 )
     saver = tf.train.Saver()
+    if not os.path.exists(CHECKPOINT_PATH):
+        os.makedirs(CHECKPOINT_PATH)
     with tf.Session() as session:
         tf.global_variables_initializer().run()
         run_model(session, True, train_model,
                   valid_model, train_data, valid_data, saver)
         run_predict(session, predict_model, test_data, method="predict",
-                    save_path="./sample_submission.csv")
+                    save_path=os.path.join(OUTDIR, "sample_submission.csv"))
 
 
 if __name__ == "__main__":
-    res = main()
+    main()

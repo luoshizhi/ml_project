@@ -1,6 +1,10 @@
 [base]
+TRAIN_DATA = /workdir/data/clean_data/train_word_to_index_0.9.csv
+VALID_DATA = /workdir/data/clean_data/valid_word_to_index_0.1.csv
+TEST_DATA = /workdir/data/clean_data/test_redu_word_to_index.csv 
+OUTDIR = /workdir/baseline1
 TRAIN_BATCH_SIZE = 128
-VOCAB_SIZE = 60000
+VOCAB_SIZE = 67110
 TRAIN_NUM_STEP = 42
 HIDDEN_SIZE = 128
 NUM_LAYERS = 3
@@ -11,4 +15,5 @@ EMBEDDING_KEEP_PROB = 0.5
 MAX_GRAD_NORM = 5
 LEARNING_RATE = 1.0
 EVAL_BATCH_SIZE = 1
+STAT_STEP = 10
 
