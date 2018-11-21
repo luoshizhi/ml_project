@@ -286,7 +286,7 @@ def run_model(session, is_trainning, train_model,
             train_res = session.run(train_fetches, feed_dict=feed)
             step += 1
             if step % STAT_STEP == 0:
-                print (train_res)
+                # print (train_res)
                 valid_loss, valid_accuracy = run_predict(
                     session, valid_model, valid_data, method="valid")
                 end = time.time()
@@ -296,7 +296,7 @@ def run_model(session, is_trainning, train_model,
                        "valid_accuracy:{:.4f}...".format(valid_accuracy),
                        "{0:.4f} sec/{1}batches".format(
                                                 (end - start), STAT_STEP))
-                f.write("{0}\t{1}\t{2}\t{3}\t{4}".format(
+                f.write("{0}\t{1}\t{2}\t{3}\t{4}\n".format(
                                                     step,
                                                     train_res[0],
                                                     train_res[1],
