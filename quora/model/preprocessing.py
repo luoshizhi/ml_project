@@ -10,6 +10,7 @@ from keras_preprocessing.text import Tokenizer
 import codecs
 import configparser
 import os
+import csv
 
 
 class ConfigFile(object):
@@ -36,9 +37,8 @@ class ConfigFile(object):
         return [float(x) for x in self.getlist(section, option)]
 
 
-
-
-# TextPerProcessor git clone from https://github.com/HouJP/kaggle-quora-question-pairs/blob/master/bin/preprocessor.py
+# TextPerProcessor class git clone from
+# https://github.com/HouJP/kaggle-quora-question-pairs
 class TextPreProcessor(object):
     _stemmer = SnowballStemmer('english')
 
@@ -266,34 +266,42 @@ gg = train_data.batch_generator(batch_size=30)
         self.df.to_csv(file_path, index=False)
 
     def format_inputs(self):
-        self.inputs = self.df.loc[:, ["question1", "question2", "is_duplicate"]]
+        self.inputs = self.df.loc[:,
+                                  ["question1", "question2", "is_duplicate"]]
         self.inputs.question1 = self.inputs.question1.map(lambda x: x.split())
         self.inputs.question2 = self.inputs.question2.map(lambda x: x.split())
-        self.inputs.is_duplicate = self.inputs.is_duplicate.map(
+        try:
+            self.inputs.is_duplicate = self.inputs.is_duplicate.map(
                                    lambda x: [1, 0] if x == 0 else [0, 1])
+        except AttributeError:
+            pass
 
-    def batch_generator(self, batch_size=50, frac=1.0, equal=True, add_y=True):
+    def batch_generator(self, batch_size=50, frac=1.0, equal=False):
         if equal is True:
-            dis_dup_df = self.inputs[self.df.is_duplicate == 0]
-            is_dup_df = self.inputs[self.df.is_duplicate == 1]
-            dis_dup_partial = dis_dup_df.sample(
-                            frac=float(len(is_dup_df)) / len(dis_dup_df))
-            df = pd.concat([dis_dup_partial, is_dup_df],
-                           ignore_index=True).sample(frac=frac)
+            try:
+                dis_dup_df = self.inputs[self.df.is_duplicate == 0]
+                is_dup_df = self.inputs[self.df.is_duplicate == 1]
+                dis_dup_partial = dis_dup_df.sample(
+                                frac=float(len(is_dup_df)) / len(dis_dup_df))
+                df = pd.concat([dis_dup_partial, is_dup_df],
+                               ignore_index=True).sample(frac=frac)
+            except AttributeError:
+                df = self.inputs
+        else:
+            df = self.inputs
         df = df.sample(frac=frac).reset_index(drop=True)
         df = df.loc[0:len(df) // batch_size * batch_size - 1, :]
-        while True:
-            for i in range(0, len(df), batch_size):
-                question1 = np.array(list(
-                    df.loc[i:i+batch_size-1, "question1"]), dtype=np.int32)
-                question2 = np.array(list(
-                    df.loc[i:i+batch_size-1, "question2"]), dtype=np.int32)
-                if add_y is True:
-                    is_duplicate = np.array(list(
-                     df.loc[i:i+batch_size-1, "is_duplicate"]), dtype=np.int32)
-                    yield question1, question2, is_duplicate
-                else:
-                    yield question1, question2
+        for i in range(0, len(df), batch_size):
+            question1 = np.array(list(
+                df.loc[i:i+batch_size-1, "question1"]), dtype=np.int32)
+            question2 = np.array(list(
+                df.loc[i:i+batch_size-1, "question2"]), dtype=np.int32)
+            try:
+                is_duplicate = np.array(list(
+                 df.loc[i:i+batch_size-1, "is_duplicate"]), dtype=np.int32)
+                yield question1, question2, is_duplicate
+            except KeyError:
+                yield question1, question2
 
     def length_dist(self, plot=False, top_n=0.999):
         """
@@ -390,6 +398,10 @@ gg = train_data.batch_generator(batch_size=30)
 
     def text_to_arr(self, text):
         arr = []
+        try:
+            text.split()
+        except AttributeError:
+            print (text)
         for word in text.split():
             arr.append(str(self.word_to_index(word)))
         return " ".join(arr)
@@ -412,3 +424,23 @@ gg = train_data.batch_generator(batch_size=30)
                 if self.padding == "right":
                     x_list = x_list + ["0"] * (self.cut_size - len(x_list))
         return " ".join(x_list)
+
+
+def redu_test(infile, outfile):
+    "reduplicate test_id in infile, and output result file"
+    data = {}
+    with open(infile) as csvfile:
+        csv_reader = csv.reader(csvfile)
+        header = next(csv_reader)
+        for row in csv_reader:
+            try:
+                data[int(row[0])] = row
+            except ValueError:
+                pass
+    csvfile = open(outfile, 'w')
+    writer = csv.writer(csvfile)
+    writer.writerow(header)
+    for row in sorted(data.values(), key=lambda item: int(item[0])):
+        writer.writerow(row)
+    csvfile.close()
+    return
