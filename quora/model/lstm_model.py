@@ -28,7 +28,8 @@ MAX_GRAD_NORM = config.cf.getint("base", "MAX_GRAD_NORM")
 LEARNING_RATE = config.cf.getfloat("base", "LEARNING_RATE")
 EVAL_BATCH_SIZE = config.cf.getint("base", "EVAL_BATCH_SIZE")
 
-OUTDIR = config.cf.get("base", "OUTDIR")
+# OUTDIR = config.cf.get("base", "OUTDIR")
+OUTDIR = os.path.dirname(os.path.abspath(sys.argv[1]))
 CHECKPOINT_PATH = os.path.join(OUTDIR, "model")
 INITIAL = config.cf.getfloat("base", "INITIAL")
 
