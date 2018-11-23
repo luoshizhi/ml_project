@@ -30,6 +30,7 @@ EVAL_BATCH_SIZE = config.cf.getint("base", "EVAL_BATCH_SIZE")
 
 OUTDIR = config.cf.get("base", "OUTDIR")
 CHECKPOINT_PATH = os.path.join(OUTDIR, "model")
+INITIAL = config.cf.getfloat("base", "INITIAL")
 
 
 class QuoraModel(object):
@@ -339,7 +340,7 @@ def process_test():
 
 
 def main():
-    initializer = tf.random_uniform_initializer(-1.0, 1.0)
+    initializer = tf.random_uniform_initializer(-INITIAL, INITIAL)
 
     # process("../data/train_clean_text.csv", "../data/train_word_to_index10000_0.9.csv","../data/valid_word_to_index10000_0.1.csv")
     # return
