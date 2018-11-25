@@ -7,6 +7,7 @@ import time
 import sys
 import csv
 import os
+from plot import plot
 
 config = ConfigFile(sys.argv[1])
 
@@ -266,10 +267,9 @@ def run_model(session, is_trainning, train_model,
                      train_model.accuracy,
                      train_model.optimizer]
     step = 0
-    f = open(os.path.join(OUTDIR, "stat.txt"), "w")
-    info = "step\tloss\ttrain_accuracy\tvalid_accuracy\tsec/{}batches".format(
-        STAT_STEP)
-    f.write(info+"\n")
+    with open(os.path.join(OUTDIR, "stat.txt"), "w") as f:
+        info = "step\tloss\ttrain_accuracy\tvalid_accuracy\tsec/{}batches".format(STAT_STEP)
+        f.write(info+"\n")
     for i in range(NUM_EPOCH):
         train_batches = train_data.batch_generator(
                         batch_size=train_model.batch_size,
@@ -298,7 +298,8 @@ def run_model(session, is_trainning, train_model,
                        "valid_accuracy:{:.4f}...".format(valid_accuracy),
                        "{0:.4f} sec/{1}batches".format(
                                                 (end - start), STAT_STEP))
-                f.write("{0}\t{1}\t{2}\t{3}\t{4}\n".format(
+                with open(os.path.join(OUTDIR, "stat.txt"), "a") as f:
+                    f.write("{0}\t{1}\t{2}\t{3}\t{4}\n".format(
                                                     step,
                                                     train_res[0],
                                                     train_res[1],
@@ -383,6 +384,7 @@ def main():
                                 hidden_size=HIDDEN_SIZE,
                                 num_layers=NUM_LAYERS
                                 )
+    start = time.time()
     saver = tf.train.Saver()
     if not os.path.exists(CHECKPOINT_PATH):
         os.makedirs(CHECKPOINT_PATH)
@@ -392,7 +394,13 @@ def main():
                   valid_model, train_data, valid_data, saver)
         run_predict(session, predict_model, test_data, method="predict",
                     save_path=os.path.join(OUTDIR, "sample_submission.csv"))
-
+    end = time.time()
+    consumption = (end - start)/60/60
+    projectname = os.path.basename(OUTDIR)
+    plot(os.path.join(OUTDIR, "stat.txt"),
+         collist=["loss", "train_accuracy", "valid_accuracy"],
+         title=projectname,
+         savefig=os.path.join(OUTDIR, projectname+".stat.jpg"))
 
 if __name__ == "__main__":
     main()
