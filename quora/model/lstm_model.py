@@ -400,7 +400,7 @@ def main():
     plot(os.path.join(OUTDIR, "stat.txt"),
          collist=["loss", "train_accuracy", "valid_accuracy"],
          title=projectname,
-         savefig=os.path.join(OUTDIR, projectname+".stat.jpg"))
+         savefig=os.path.join(OUTDIR, projectname+".stat.pdf"))
 
 if __name__ == "__main__":
     main()

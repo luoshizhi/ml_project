@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 # from matplotlib.ticker import MultipleLocator
 import pandas as pd
@@ -15,7 +17,7 @@ def plot(file, collist=[], title=None, savefig=None):
     if title:
         plt.title(title)
     if not savefig:
-        savefig = file+".jpg"
+        savefig = file+".pdf"
     plt.savefig(savefig)
     return
 
