@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from plot import plot
 import tensorflow as tf
 import inspect
 import preprocessing
@@ -7,7 +8,10 @@ import time
 import sys
 import csv
 import os
-from plot import plot
+
+
+FLAGS = tf.flags.FLAGS
+tf.flags.DEFINE_boolean('predict_only', False, 'only prdict not re_training')
 
 config = ConfigFile(sys.argv[1])
 
@@ -260,16 +264,18 @@ def run_predict(session, model, data, method="predict",
 
 
 def run_model(session, is_trainning, train_model,
-              valid_model, train_data, valid_data, saver):
+              valid_model, train_data, valid_data, saver, global_step=0):
     train_model_seq1_state = train_model_seq2_state = session.run(
                             train_model.seq1_initial_state)
     train_fetches = [train_model.loss,
                      train_model.accuracy,
                      train_model.optimizer]
-    step = 0
-    with open(os.path.join(OUTDIR, "stat.txt"), "w") as f:
-        info = "step\tloss\ttrain_accuracy\tvalid_accuracy\tsec/{}batches".format(STAT_STEP)
-        f.write(info+"\n")
+    step = global_step
+    statfile = os.path.join(OUTDIR, "stat.txt")
+    if (not os.path.exists(statfile)) or os.path.getsize(statfile):
+        with open(statfile, "w") as f:
+            info = "step\tloss\ttrain_accuracy\tvalid_accuracy\tsec/{}batches".format(STAT_STEP)
+            f.write(info+"\n")
     for i in range(NUM_EPOCH):
         train_batches = train_data.batch_generator(
                         batch_size=train_model.batch_size,
@@ -386,12 +392,18 @@ def main():
                                 )
     start = time.time()
     saver = tf.train.Saver()
+    global_step = 0
     if not os.path.exists(CHECKPOINT_PATH):
         os.makedirs(CHECKPOINT_PATH)
     with tf.Session() as session:
         tf.global_variables_initializer().run()
-        run_model(session, True, train_model,
-                  valid_model, train_data, valid_data, saver)
+        model_file = tf.train.latest_checkpoint(CHECKPOINT_PATH)
+        if model_file:
+            global_step = int(model_file.split("-")[-1])
+            saver.restore(session, model_file)
+        if not FLAGS.predict_only:
+            run_model(session, True, train_model,
+                      valid_model, train_data, valid_data, saver, global_step)
         run_predict(session, predict_model, test_data, method="predict",
                     save_path=os.path.join(OUTDIR, "sample_submission.csv"))
     end = time.time()
