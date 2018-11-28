@@ -27,6 +27,7 @@ EMBEDDING_SIZE = config.cf.getint("base", "EMBEDDING_SIZE")
 
 # MLP_DIMENSION = config.getintlist("base", "MLP_DIMENSION")
 FILTER_SIZES = config.getintlist("base", "FILTER_SIZES")
+POOLING = config.cf.get("base", "POOLING")
 STAT_STEP = config.cf.getint("base", "STAT_STEP")
 
 NUM_EPOCH = config.cf.getint("base", "NUM_EPOCH")
@@ -125,12 +126,20 @@ class TextCNNModel(object):
                 # Apply nonlinearity
                 h = tf.nn.relu(tf.nn.bias_add(conv, bias), name="relu")
                 # Maxpooling over the outputs
-                pooled = tf.nn.max_pool(
-                    h,
-                    ksize=[1, self.seq_length * 2 - filter_size + 1, 1, 1],
-                    strides=[1, 1, 1, 1],
-                    padding='VALID',
-                    name="pool")
+                if POOLING == "max":
+                    pooled = tf.nn.max_pool(
+                        h,
+                        ksize=[1, self.seq_length * 2 - filter_size + 1, 1, 1],
+                        strides=[1, 1, 1, 1],
+                        padding='VALID',
+                        name="pool")
+                if POOLING == "mean":
+                    pooled = tf.nn.avg_pool(
+                        h,
+                        ksize=[1, self.seq_length * 2 - filter_size + 1, 1, 1],
+                        strides=[1, 1, 1, 1],
+                        padding='VALID',
+                        name="pool")
                 pooled_outputs.append(pooled)
         self.num_filters_total = num_filters * len(self.filter_sizes)
         self.h_pool = tf.concat(pooled_outputs, 3)
