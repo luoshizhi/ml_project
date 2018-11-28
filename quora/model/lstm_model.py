@@ -39,7 +39,7 @@ CHECKPOINT_PATH = os.path.join(OUTDIR, "model")
 INITIAL = config.cf.getfloat("base", "INITIAL")
 
 
-class QuoraModel(object):
+class RNNModel(object):
     def __init__(self, vocab_size, is_trainning, batch_size, num_step,
                  hidden_size, num_layers):
         self.vocab_size = vocab_size
@@ -74,15 +74,15 @@ class QuoraModel(object):
                                         self.seq2_rnn_outputs], axis=1)
 
         with tf.variable_scope("mlp"):
-            self.predict = self._build_mlp(self.out_merge, MLP_DIMENSION)
+            self.out = self._build_mlp(self.out_merge, MLP_DIMENSION)
 
         with tf.name_scope("loss"):
             self.loss = tf.reduce_mean(
                         tf.nn.softmax_cross_entropy_with_logits_v2(
-                            labels=self.targets, logits=self.predict))
+                            labels=self.targets, logits=self.out))
 
         with tf.name_scope("assessment"):
-            self.predict_class = tf.argmax(self.predict, 1)
+            self.predict_class = tf.argmax(self.out, 1)
             self.target_class = tf.argmax(self.targets, 1)
             correct_prediction = tf.equal(self.predict_class,
                                           self.target_class)
@@ -177,44 +177,6 @@ class QuoraModel(object):
             in_dim = layer_dimension[i]
         return cur_layer
 
-'''
-def run_epoch(session, model, batches, keep_prob, eval_op=None, verbose=True):
-    # fetches = [model.loss, model.accuracy, model.predict,
-    #           model.predict_class,  model.target_class, model.out_merge,
-    #            model.Wx_plus_b, model.layers]
-    fetches = [model.loss, model.accuracy]
-    seq1_state = session.run(model.seq1_initial_state)
-    seq2_state = session.run(model.seq2_initial_state)
-    step = 0
-    if eval_op is not None:
-        fetches.append(eval_op)
-    start = time.time()
-    for x1, x2, y in batches:
-        feed = {model.seq1_inputs: x1,
-                model.seq2_inputs: x2,
-                model.targets: y,
-                model.keep_prob: keep_prob,
-                model.seq1_initial_state: seq1_state,
-                model.seq2_initial_state: seq2_state}
-        res = session.run(fetches, feed_dict=feed)
-
-        if verbose is True and step % 100 == 0:
-            end = time.time()
-            print ("step:{0}...".format(step),
-                   "loss: {:.4f}...".format(res[0]),
-                   "accuracy:{:.4f}...".format(res[1]),
-                   # "predict:{0}...".format(res[2]),
-                   # "predict_class{0}...".format(res[3]),
-                   # "target_class{0}...".format(res[4]),
-                   # "out_merge{0}...".format(res[5]),
-                   # "Wx_plus_b{0}...".format(res[6]),
-                   # "layer{0}...".format(res[7]),
-                   "{:.4f} sec/100 batches".format((end - start)),)
-            start = time.time()
-#            return res
-    return res
-'''
-
 
 def run_predict(session, model, data, method="predict",
                 save_path="./sample_submission.csv"):
@@ -272,7 +234,7 @@ def run_model(session, is_trainning, train_model,
                      train_model.optimizer]
     step = global_step
     statfile = os.path.join(OUTDIR, "stat.txt")
-    if (not os.path.exists(statfile)) or os.path.getsize(statfile):
+    if (not os.path.exists(statfile)) or os.path.getsize(statfile) == 0:
         with open(statfile, "w") as f:
             info = "step\tloss\ttrain_accuracy\tvalid_accuracy\tsec/{}batches".format(STAT_STEP)
             f.write(info+"\n")
@@ -364,7 +326,7 @@ def main():
     test_data.cut_padding(cut_size=TRAIN_NUM_STEP, padding="left")
     test_data.format_inputs()
     with tf.variable_scope("model", reuse=None, initializer=initializer):
-        train_model = QuoraModel(
+        train_model = RNNModel(
                                 vocab_size=VOCAB_SIZE,
                                 is_trainning=True,
                                 batch_size=TRAIN_BATCH_SIZE,
@@ -373,7 +335,7 @@ def main():
                                 num_layers=NUM_LAYERS
                                 )
     with tf.variable_scope("model", reuse=True, initializer=initializer):
-        valid_model = QuoraModel(
+        valid_model = RNNModel(
                                 vocab_size=VOCAB_SIZE,
                                 is_trainning=False,
                                 batch_size=valid_data.len,
@@ -382,7 +344,7 @@ def main():
                                 num_layers=NUM_LAYERS
                                 )
     with tf.variable_scope("model", reuse=True, initializer=initializer):
-        predict_model = QuoraModel(
+        predict_model = RNNModel(
                                 vocab_size=VOCAB_SIZE,
                                 is_trainning=False,
                                 batch_size=1,
@@ -413,6 +375,7 @@ def main():
          collist=["loss", "train_accuracy", "valid_accuracy"],
          title=projectname,
          savefig=os.path.join(OUTDIR, projectname+".stat.pdf"))
+
 
 if __name__ == "__main__":
     main()
