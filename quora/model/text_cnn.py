@@ -27,6 +27,7 @@ EMBEDDING_SIZE = config.cf.getint("base", "EMBEDDING_SIZE")
 
 # MLP_DIMENSION = config.getintlist("base", "MLP_DIMENSION")
 FILTER_SIZES = config.getintlist("base", "FILTER_SIZES")
+NUM_FILTERS = config.cf.getint("base", "NUM_FILTERS")
 POOLING = config.cf.get("base", "POOLING")
 STAT_STEP = config.cf.getint("base", "STAT_STEP")
 
@@ -107,17 +108,16 @@ class TextCNNModel(object):
 
     def _build_cnn(self):
         pooled_outputs = []
-        num_filters = len(self.filter_sizes)
         for i, filter_size in enumerate(self.filter_sizes):
             with tf.variable_scope("conv-maxpool-%s" % filter_size):
                 # Convolution Layer
                 filter_shape = [filter_size,
-                                self.embedding_size, 1, num_filters]
+                                self.embedding_size, 1, NUM_FILTERS]
                 weight = tf.get_variable(
                  name='weight', shape=filter_shape,
                  initializer=tf.random_normal_initializer(mean=0, stddev=0.1))
                 bias = tf.get_variable(
-                    name="bias", shape=[num_filters],
+                    name="bias", shape=[NUM_FILTERS],
                     initializer=tf.ones_initializer())
                 conv = tf.nn.conv2d(
                     self.inputs,
@@ -143,7 +143,7 @@ class TextCNNModel(object):
                         padding='VALID',
                         name="pool")
                 pooled_outputs.append(pooled)
-        self.num_filters_total = num_filters * len(self.filter_sizes)
+        self.num_filters_total = NUM_FILTERS * len(self.filter_sizes)
         self.h_pool = tf.concat(pooled_outputs, 3)
         self.h_pool_flat = tf.reshape(self.h_pool,
                                       [-1, self.num_filters_total])
