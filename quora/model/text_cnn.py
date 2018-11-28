@@ -41,11 +41,12 @@ EVAL_BATCH_SIZE = config.cf.getint("base", "EVAL_BATCH_SIZE")
 OUTDIR = os.path.dirname(os.path.abspath(sys.argv[1]))
 CHECKPOINT_PATH = os.path.join(OUTDIR, "cnn_model")
 INITIAL = config.cf.getfloat("base", "INITIAL")
+L2_REG_LAMBDA = config.cf.getfloat("base", "L2_REG_LAMBDA")
 
 
 class TextCNNModel(object):
     def __init__(self, vocab_size, is_trainning, batch_size, embedding_size,
-                 filter_sizes, seq_length):
+                 filter_sizes, seq_length, l2_reg_lambda=0.0):
         self.vocab_size = vocab_size
         self.is_trainning = is_trainning
         self.batch_size = batch_size
@@ -53,8 +54,8 @@ class TextCNNModel(object):
         self.filter_sizes = filter_sizes
         self.embedding_size = embedding_size
         # l2
-        # self.l2_reg_lambda = l2_reg_lambda
-        # self.l2_loss = tf.constant(0.0)
+        self.l2_reg_lambda = l2_reg_lambda
+        self.l2_loss = tf.constant(0.0)
 
         self.keep_prob = tf.placeholder(tf.float32, name="keep_prob")
         self.targets = tf.placeholder(
@@ -70,6 +71,7 @@ class TextCNNModel(object):
             self.loss = tf.reduce_mean(
                         tf.nn.softmax_cross_entropy_with_logits_v2(
                             labels=self.targets, logits=self.out))
+            self.loss += self.l2_reg_lambda * self.l2_loss
 
         with tf.name_scope("assessment"):
             self.predict_class = tf.argmax(self.out, 1)
@@ -154,8 +156,8 @@ class TextCNNModel(object):
             shape=[self.num_filters_total, 2],
             initializer=tf.contrib.layers.xavier_initializer())
         bias = tf.Variable(tf.constant(0.1, shape=[2]), name="bias")
-        # l2_loss += tf.nn.l2_loss(W)
-        # l2_loss += tf.nn.l2_loss(b)
+        self.l2_loss += tf.nn.l2_loss(weight)
+        self.l2_loss += tf.nn.l2_loss(bias)
         self.out = tf.nn.xw_plus_b(
                 self.h_drop, weight, bias, name="out")
 
@@ -278,7 +280,8 @@ def main():
                                 batch_size=TRAIN_BATCH_SIZE,
                                 embedding_size=EMBEDDING_SIZE,
                                 seq_length=SEQ_LEN,
-                                filter_sizes=FILTER_SIZES
+                                filter_sizes=FILTER_SIZES,
+                                l2_reg_lambda=L2_REG_LAMBDA
                                 )
     with tf.variable_scope("model", reuse=True, initializer=initializer):
         valid_model = TextCNNModel(
@@ -287,7 +290,8 @@ def main():
                                 batch_size=valid_data.len,
                                 embedding_size=EMBEDDING_SIZE,
                                 seq_length=SEQ_LEN,
-                                filter_sizes=FILTER_SIZES
+                                filter_sizes=FILTER_SIZES,
+                                l2_reg_lambda=L2_REG_LAMBDA
                                 )
     with tf.variable_scope("model", reuse=True, initializer=initializer):
         predict_model = TextCNNModel(
@@ -296,7 +300,8 @@ def main():
                                 batch_size=1,
                                 embedding_size=EMBEDDING_SIZE,
                                 seq_length=SEQ_LEN,
-                                filter_sizes=FILTER_SIZES
+                                filter_sizes=FILTER_SIZES,
+                                l2_reg_lambda=L2_REG_LAMBDA
                                 )
 
     start = time.time()
