@@ -16,6 +16,7 @@ config = ConfigFile(sys.argv[1])
 TRAIN_DATA = config.cf.get("base", "TRAIN_DATA")
 VALID_DATA = config.cf.get("base", "VALID_DATA")
 TEST_DATA = config.cf.get("base", "TEST_DATA")
+PADDING = config.cf.get("base", "PADDING")
 TRAIN_BATCH_SIZE = config.cf.getint("base", "TRAIN_BATCH_SIZE")
 VOCAB_SIZE = config.cf.getint("base", "VOCAB_SIZE")
 SEQ_LEN = config.cf.getint("base", "SEQ_LEN")
@@ -29,6 +30,8 @@ EMBEDDING_SIZE = config.cf.getint("base", "EMBEDDING_SIZE")
 FILTER_SIZES = config.getintlist("base", "FILTER_SIZES")
 NUM_FILTERS = config.cf.getint("base", "NUM_FILTERS")
 POOLING = config.cf.get("base", "POOLING")
+CNNTYPE = config.cf.get("base", "CNNTYPE")
+
 STAT_STEP = config.cf.getint("base", "STAT_STEP")
 
 NUM_EPOCH = config.cf.getint("base", "NUM_EPOCH")
@@ -65,7 +68,7 @@ class TextCNNModel(object):
         with tf.variable_scope("input"):
             self._build_input()
         with tf.variable_scope("cnn"):
-            self._build_cnn()
+            self._build_cnn(cnntype=CNNTYPE)
         with tf.variable_scope("output"):
             self._build_fc()
         with tf.variable_scope("loss"):
@@ -106,10 +109,15 @@ class TextCNNModel(object):
         inputs = tf.concat([self.s1, self.s2], axis=1)
         self.inputs = tf.expand_dims(inputs, -1)
 
-    def _build_cnn(self):
+    def _build_cnn(self, cnntype="maxpool"):
+        '''
+        cnntype="maxpool": (dynamic) k-max pooling
+        cnntype="doublemaxpool" (dynamic) double:k-max pooling for each seq
+        '''
         pooled_outputs = []
         for i, filter_size in enumerate(self.filter_sizes):
-            with tf.variable_scope("conv-maxpool-%s" % filter_size):
+            tf_scope_name = "conv-{}-{}".format(cnntype, filter_size)
+            with tf.variable_scope(tf_scope_name):
                 # Convolution Layer
                 filter_shape = [filter_size,
                                 self.embedding_size, 1, NUM_FILTERS]
@@ -128,22 +136,33 @@ class TextCNNModel(object):
                 # Apply nonlinearity
                 h = tf.nn.relu(tf.nn.bias_add(conv, bias), name="relu")
                 # Maxpooling over the outputs
+                # k max pool
+                if cnntype == "maxpool":
+                    filter_heigh = self.seq_length * 2 - filter_size + 1
+                    stride_heigh = 1
+                # k double max
+                if cnntype == "doublemaxpool":
+                    filter_heigh = (self.seq_length * 2 - filter_size + 1)/2
+                    stride_heigh = (self.seq_length * 2 - filter_size + 1)/2
                 if POOLING == "max":
                     pooled = tf.nn.max_pool(
                         h,
-                        ksize=[1, self.seq_length * 2 - filter_size + 1, 1, 1],
-                        strides=[1, 1, 1, 1],
+                        ksize=[1, filter_heigh, 1, 1],
+                        strides=[1, stride_heigh, 1, 1],
                         padding='VALID',
                         name="pool")
                 if POOLING == "mean":
                     pooled = tf.nn.avg_pool(
                         h,
-                        ksize=[1, self.seq_length * 2 - filter_size + 1, 1, 1],
-                        strides=[1, 1, 1, 1],
+                        ksize=[1, filter_heigh, 1, 1],
+                        strides=[1, stride_heigh, 1, 1],
                         padding='VALID',
                         name="pool")
                 pooled_outputs.append(pooled)
-        self.num_filters_total = NUM_FILTERS * len(self.filter_sizes)
+        if cnntype == "maxpool":
+            self.num_filters_total = NUM_FILTERS * len(self.filter_sizes)
+        if cnntype == "doublemaxpool":
+            self.num_filters_total = NUM_FILTERS * len(self.filter_sizes) * 2
         self.h_pool = tf.concat(pooled_outputs, 3)
         self.h_pool_flat = tf.reshape(self.h_pool,
                                       [-1, self.num_filters_total])
@@ -263,15 +282,15 @@ def main():
     # process("../data/train_clean_text.csv", "../data/train_word_to_index10000_0.9.csv","../data/valid_word_to_index10000_0.1.csv")
     # return
     train_data = preprocessing.TextConverter(TRAIN_DATA)
-    train_data.cut_padding(cut_size=SEQ_LEN, padding="left")
+    train_data.cut_padding(cut_size=SEQ_LEN, padding=PADDING)
     train_data.format_inputs()
 
     valid_data = preprocessing.TextConverter(VALID_DATA)
-    valid_data.cut_padding(cut_size=SEQ_LEN, padding="left")
+    valid_data.cut_padding(cut_size=SEQ_LEN, padding=PADDING)
     valid_data.format_inputs()
 
     test_data = preprocessing.TextConverter(TEST_DATA)
-    test_data.cut_padding(cut_size=SEQ_LEN, padding="left")
+    test_data.cut_padding(cut_size=SEQ_LEN, padding=PADDING)
     test_data.format_inputs()
     with tf.variable_scope("model", reuse=None, initializer=initializer):
         train_model = TextCNNModel(
