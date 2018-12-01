@@ -1,0 +1,23 @@
+[base]
+TRAIN_DATA = /workdir/data/clean_data/train_word_to_index_0.9.csv
+VALID_DATA = /workdir/data/clean_data/valid_word_to_index_0.1.csv
+TEST_DATA = /workdir/data/clean_data/test_redu_word_to_index.csv 
+OUTDIR = ./try1 
+TRAIN_BATCH_SIZE = 128
+VOCAB_SIZE = 67110
+SEQ_LEN = 42
+PADDING = right
+EMBEDDING_SIZE = 300
+NUM_FILTERS = 300
+H_POOL_TYPE = max,mean,min
+H_WS_SIZE = 1,2,42
+P_POOL_TYPE = max,min
+P_WS_SIZE = 1,2
+NUM_EPOCH = 50
+KEEP_PROB = 0.5
+MAX_GRAD_NORM = 5
+LEARNING_RATE = 0.1
+EVAL_BATCH_SIZE = 1
+STAT_STEP = 400
+INITIAL = 0.1
+L2_REG_LAMBDA = 1.0

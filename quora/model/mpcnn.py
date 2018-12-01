@@ -20,30 +20,26 @@ PADDING = config.cf.get("base", "PADDING")
 TRAIN_BATCH_SIZE = config.cf.getint("base", "TRAIN_BATCH_SIZE")
 VOCAB_SIZE = config.cf.getint("base", "VOCAB_SIZE")
 SEQ_LEN = config.cf.getint("base", "SEQ_LEN")
-#TRAIN_NUM_STEP = config.cf.getint("base", "TRAIN_NUM_STEP")
+H_POOL_TYPE = config.getlist("base", "H_POOL_TYPE")
+H_WS_SIZE = config.getintlist("base", "H_WS_SIZE")
+P_POOL_TYPE = config.getlist("base", "P_POOL_TYPE")
+P_WS_SIZE = config.getintlist("base", "P_WS_SIZE")
 
-# HIDDEN_SIZE = config.cf.getint("base", "HIDDEN_SIZE")
-# NUM_LAYERS = config.cf.getint("base", "NUM_LAYERS")
+
 EMBEDDING_SIZE = config.cf.getint("base", "EMBEDDING_SIZE")
 
-# MLP_DIMENSION = config.getintlist("base", "MLP_DIMENSION")
-FILTER_SIZES = config.getintlist("base", "FILTER_SIZES")
 NUM_FILTERS = config.cf.getint("base", "NUM_FILTERS")
-POOLING = config.cf.get("base", "POOLING")
-CNNTYPE = config.cf.get("base", "CNNTYPE")
 
 STAT_STEP = config.cf.getint("base", "STAT_STEP")
 
 NUM_EPOCH = config.cf.getint("base", "NUM_EPOCH")
 KEEP_PROB = config.cf.getfloat("base", "KEEP_PROB")
-# EMBEDDING_KEEP_PROB = config.cf.getfloat("base", "EMBEDDING_KEEP_PROB")
 MAX_GRAD_NORM = config.cf.getint("base", "MAX_GRAD_NORM")
 LEARNING_RATE = config.cf.getfloat("base", "LEARNING_RATE")
 EVAL_BATCH_SIZE = config.cf.getint("base", "EVAL_BATCH_SIZE")
 
-# OUTDIR = config.cf.get("base", "OUTDIR")
 OUTDIR = os.path.dirname(os.path.abspath(sys.argv[1]))
-CHECKPOINT_PATH = os.path.join(OUTDIR, "cnn_model")
+CHECKPOINT_PATH = os.path.join(OUTDIR, "mpcnn_model")
 INITIAL = config.cf.getfloat("base", "INITIAL")
 L2_REG_LAMBDA = config.cf.getfloat("base", "L2_REG_LAMBDA")
 
@@ -209,7 +205,6 @@ class MPCNNModel(object):
             cal_feab.append(cal_sub_feab)
         feah = tf.concat(cal_feah, axis=1, name="feah_"+block+"_concat")
         feab = tf.concat(cal_feab, axis=1, name="feab_"+block+"_concat")
-
         return feah, feab
 
     def _build_fc(self):
@@ -222,3 +217,183 @@ class MPCNNModel(object):
         self.l2_loss += tf.nn.l2_loss(bias)
         self.out = tf.nn.xw_plus_b(
                 self.h_drop, weight, bias, name="out")
+
+
+def run_predict(session, model, data, method="predict",
+                save_path="./sample_submission.csv"):
+    if method == "predict":
+        csvfile = open(save_path, 'w')
+        writer = csv.writer(csvfile)
+        writer.writerow([data.df.columns[0], "is_duplicate"])
+    fetches = [model.predict_class]
+
+    if method == "valid":
+        fetches.extend([model.loss, model.accuracy])
+
+    generator = data.batch_generator(batch_size=model.batch_size)
+
+    batches_num = 0
+    loss = 0.0
+    accuracy = 0.0
+
+    for ids, q1, q2, y in generator:
+        feed = {model.seq1_inputs: q1,
+                model.seq2_inputs: q2,
+                model.keep_prob: 1.0
+                }
+        if method == "valid":
+            feed[model.targets] = y
+        res = session.run(fetches, feed_dict=feed)
+        if method == "valid":
+            batches_num += 1
+            loss += res[1]
+            accuracy += res[2]
+        if method == "predict":
+            for i in range(len(ids)):
+                writer.writerow([ids[i], res[0][i]])
+
+    if method == "predict":
+        csvfile.close()
+        return (None, None)
+    if method == "valid":
+        loss = loss / batches_num
+        accuracy = accuracy / batches_num
+    return loss, accuracy
+
+
+def run_model(session, is_trainning, train_model,
+              valid_model, train_data, valid_data, saver, global_step=0):
+
+    train_fetches = [train_model.loss,
+                     train_model.accuracy,
+                     train_model.optimizer]
+    step = global_step
+    statfile = os.path.join(OUTDIR, "stat.txt")
+    if (not os.path.exists(statfile)) or os.path.getsize(statfile) == 0:
+        with open(statfile, "w") as f:
+            info = "step\tloss\ttrain_accuracy\tvalid_accuracy\tsec/{}batches".format(STAT_STEP)
+            f.write(info+"\n")
+    for i in range(NUM_EPOCH):
+        train_batches = train_data.batch_generator(
+                        batch_size=train_model.batch_size,
+                        shuffle=True, equal=True)
+        print("In iteration: %d" % (i + 1))
+        start = time.time()
+        for _, x1, x2, y in train_batches:
+            feed = {train_model.seq1_inputs: x1,
+                    train_model.seq2_inputs: x2,
+                    train_model.targets: y,
+                    train_model.keep_prob: KEEP_PROB}
+            train_res = session.run(train_fetches, feed_dict=feed)
+            step += 1
+            if step % STAT_STEP == 0:
+                # print (train_res)
+                valid_loss, valid_accuracy = run_predict(
+                    session, valid_model, valid_data, method="valid")
+                end = time.time()
+                print ("step:{0}...".format(step),
+                       "loss: {:.4f}...".format(train_res[0]),
+                       "train_accuracy:{:.4f}...".format(train_res[1]),
+                       "valid_accuracy:{:.4f}...".format(valid_accuracy),
+                       "{0:.4f} sec/{1}batches".format(
+                                                (end - start), STAT_STEP))
+                with open(os.path.join(OUTDIR, "stat.txt"), "a") as f:
+                    f.write("{0}\t{1}\t{2}\t{3}\t{4}\n".format(
+                                                    step,
+                                                    train_res[0],
+                                                    train_res[1],
+                                                    valid_accuracy,
+                                                    end - start))
+                start = time.time()
+        # save model
+        saver.save(session,
+                   os.path.join(CHECKPOINT_PATH, "model"), global_step=step)
+    saver.save(session,
+               os.path.join(CHECKPOINT_PATH, "model"), global_step=step)
+    f.close()
+    return
+
+
+def main():
+    initializer = tf.random_uniform_initializer(-INITIAL, INITIAL)
+
+    train_data = preprocessing.TextConverter(TRAIN_DATA)
+    train_data.cut_padding(cut_size=SEQ_LEN, padding=PADDING)
+    train_data.format_inputs()
+
+    valid_data = preprocessing.TextConverter(VALID_DATA)
+    valid_data.cut_padding(cut_size=SEQ_LEN, padding=PADDING)
+    valid_data.format_inputs()
+
+    test_data = preprocessing.TextConverter(TEST_DATA)
+    test_data.cut_padding(cut_size=SEQ_LEN, padding=PADDING)
+    test_data.format_inputs()
+    with tf.variable_scope("model", reuse=None, initializer=initializer):
+        train_model = MPCNNModel(
+                                vocab_size=VOCAB_SIZE,
+                                is_trainning=True,
+                                batch_size=TRAIN_BATCH_SIZE,
+                                embedding_size=EMBEDDING_SIZE,
+                                num_filters=NUM_FILTERS,
+                                seq_length=SEQ_LEN,
+                                h_pool_type=H_POOL_TYPE,
+                                h_ws_sizes=H_WS_SIZE,
+                                p_pool_type=P_POOL_TYPE,
+                                p_ws_sizes=P_WS_SIZE,
+                                l2_reg_lambda=L2_REG_LAMBDA
+                                )
+    with tf.variable_scope("model", reuse=True, initializer=initializer):
+        valid_model = MPCNNModel(
+                                vocab_size=VOCAB_SIZE,
+                                is_trainning=False,
+                                batch_size=valid_data.len,
+                                embedding_size=EMBEDDING_SIZE,
+                                num_filters=NUM_FILTERS,
+                                seq_length=SEQ_LEN,
+                                h_pool_type=H_POOL_TYPE,
+                                h_ws_sizes=H_WS_SIZE,
+                                p_pool_type=P_POOL_TYPE,
+                                p_ws_sizes=P_WS_SIZE,
+                                l2_reg_lambda=L2_REG_LAMBDA
+                                )
+    with tf.variable_scope("model", reuse=True, initializer=initializer):
+        predict_model = MPCNNModel(
+                                vocab_size=VOCAB_SIZE,
+                                is_trainning=False,
+                                batch_size=1,
+                                embedding_size=EMBEDDING_SIZE,
+                                num_filters=NUM_FILTERS,
+                                seq_length=SEQ_LEN,
+                                h_pool_type=H_POOL_TYPE,
+                                h_ws_sizes=H_WS_SIZE,
+                                p_pool_type=P_POOL_TYPE,
+                                p_ws_sizes=P_WS_SIZE,
+                                l2_reg_lambda=L2_REG_LAMBDA
+                                )
+    start = time.time()
+    saver = tf.train.Saver()
+    global_step = 0
+    if not os.path.exists(CHECKPOINT_PATH):
+        os.makedirs(CHECKPOINT_PATH)
+    with tf.Session() as session:
+        tf.global_variables_initializer().run()
+        model_file = tf.train.latest_checkpoint(CHECKPOINT_PATH)
+        if model_file:
+            global_step = int(model_file.split("-")[-1])
+            saver.restore(session, model_file)
+        if not FLAGS.predict_only:
+            run_model(session, True, train_model,
+                      valid_model, train_data, valid_data, saver, global_step)
+        run_predict(session, predict_model, test_data, method="predict",
+                    save_path=os.path.join(OUTDIR, "sample_submission.csv"))
+    end = time.time()
+    consumption = (end - start)/60/60
+    projectname = os.path.basename(OUTDIR)
+    plot(os.path.join(OUTDIR, "stat.txt"),
+         collist=["loss", "train_accuracy", "valid_accuracy"],
+         title=projectname,
+         savefig=os.path.join(OUTDIR, projectname+".stat.pdf"))
+
+
+if __name__ == "__main__":
+    main()
