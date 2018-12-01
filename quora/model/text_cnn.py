@@ -50,12 +50,13 @@ L2_REG_LAMBDA = config.cf.getfloat("base", "L2_REG_LAMBDA")
 
 class TextCNNModel(object):
     def __init__(self, vocab_size, is_trainning, batch_size, embedding_size,
-                 filter_sizes, seq_length, l2_reg_lambda=0.0):
+                 filter_sizes, num_filters, seq_length, l2_reg_lambda=0.0):
         self.vocab_size = vocab_size
         self.is_trainning = is_trainning
         self.batch_size = batch_size
         self.seq_length = seq_length
         self.filter_sizes = filter_sizes
+        self.num_filters = num_filters
         self.embedding_size = embedding_size
         # l2
         self.l2_reg_lambda = l2_reg_lambda
@@ -120,12 +121,12 @@ class TextCNNModel(object):
             with tf.variable_scope(tf_scope_name):
                 # Convolution Layer
                 filter_shape = [filter_size,
-                                self.embedding_size, 1, NUM_FILTERS]
+                                self.embedding_size, 1, self.num_filters]
                 weight = tf.get_variable(
                  name='weight', shape=filter_shape,
                  initializer=tf.random_normal_initializer(mean=0, stddev=0.1))
                 bias = tf.get_variable(
-                    name="bias", shape=[NUM_FILTERS],
+                    name="bias", shape=[self.num_filters],
                     initializer=tf.ones_initializer())
                 conv = tf.nn.conv2d(
                     self.inputs,
@@ -160,9 +161,9 @@ class TextCNNModel(object):
                         name="pool")
                 pooled_outputs.append(pooled)
         if cnntype == "maxpool":
-            self.num_filters_total = NUM_FILTERS * len(self.filter_sizes)
+            self.num_filters_total = self.num_filters * len(self.filter_sizes)
         if cnntype == "doublemaxpool":
-            self.num_filters_total = NUM_FILTERS * len(self.filter_sizes) * 2
+            self.num_filters_total = self.num_filters * len(self.filter_sizes) * 2
         self.h_pool = tf.concat(pooled_outputs, 3)
         self.h_pool_flat = tf.reshape(self.h_pool,
                                       [-1, self.num_filters_total])
@@ -300,6 +301,7 @@ def main():
                                 embedding_size=EMBEDDING_SIZE,
                                 seq_length=SEQ_LEN,
                                 filter_sizes=FILTER_SIZES,
+                                num_filters=NUM_FILTERS,
                                 l2_reg_lambda=L2_REG_LAMBDA
                                 )
     with tf.variable_scope("model", reuse=True, initializer=initializer):
@@ -310,6 +312,7 @@ def main():
                                 embedding_size=EMBEDDING_SIZE,
                                 seq_length=SEQ_LEN,
                                 filter_sizes=FILTER_SIZES,
+                                num_filters=NUM_FILTERS,
                                 l2_reg_lambda=L2_REG_LAMBDA
                                 )
     with tf.variable_scope("model", reuse=True, initializer=initializer):
@@ -320,6 +323,7 @@ def main():
                                 embedding_size=EMBEDDING_SIZE,
                                 seq_length=SEQ_LEN,
                                 filter_sizes=FILTER_SIZES,
+                                num_filters=NUM_FILTERS,
                                 l2_reg_lambda=L2_REG_LAMBDA
                                 )
 
