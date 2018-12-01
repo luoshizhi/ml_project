@@ -77,12 +77,39 @@ class MPCNNModel(object):
                 tf.int32, [self.batch_size, self.seq_length], name="seq2")
             s1, s2 = self._build_input(self.seq1_inputs, self.seq2_inputs)
 
-        with tf.variable_scope("inference_holistic"):
+        with tf.variable_scope("blockA"):
+            m1_pool_h = self._build_block(s1,
+                                          self.h_pool_type,
+                                          self.h_ws_sizes,
+                                          block="holistic")
+            m2_pool_h = self._build_block(s2,
+                                          self.h_pool_type,
+                                          self.h_ws_sizes,
+                                          block="holistic")
+            feah_h, feab_h = self._cal_block(m1_pool_h,
+                                             m2_pool_h,
+                                             block="holistic")
 
-        with tf.variable_scope("cnn"):
-            self._build_cnn(cnntype=CNNTYPE)
-        with tf.variable_scope("output"):
+        with tf.variable_scope("blockB"):
+            m1_pool_p = self._build_block(s1,
+                                          self.p_pool_type,
+                                          self.p_ws_sizes,
+                                          block="per_dimension")
+            m2_pool_p = self._build_block(s2,
+                                          self.p_pool_type,
+                                          self.p_ws_sizes,
+                                          block="per_dimension")
+            feah_p, feab_p = self._cal_block(m1_pool_p,
+                                             m2_pool_p,
+                                             block="per_dimension")
+        self.cnn_out = tf.concat([feah_h, feab_h, feah_p, feab_p], axis=1)
+
+        with tf.name_scope("dropout"):
+            self.h_drop = tf.nn.dropout(self.cnn_out, self.keep_prob)
+
+        with tf.name_scope("output"):
             self._build_fc()
+
         with tf.variable_scope("loss"):
             self.loss = tf.reduce_mean(
                         tf.nn.softmax_cross_entropy_with_logits_v2(
@@ -118,18 +145,27 @@ class MPCNNModel(object):
         s2_expand = tf.expand_dims(s2, -1)
         return s1_expand, s2_expand
 
-    def inference_holistic(self, seq_expand):
+    def _build_block(self, seq_expand, pool_type,
+                     ws_sizes, block="holistic"):
+        """block="holistic" or "per_dimension"
+        """
         m_pool = []
-        for i, pool in enumerate(self.h_pool_type):
+        for i, pool in enumerate(pool_type):
             ws_pool = []
-            for j, ws in enumerate(self.h_ws_sizes):
-                with tf.name_scope("holistic-conv-{}pool-{}".format(pool, ws)):
+            for j, ws in enumerate(ws_sizes):
+                scope_name = "{}-conv-{}pool-{}".format(block, pool, ws)
+                with tf.name_scope(scope_name):
                     # conv layers
-                    filter_shape = [ws, self.embedding_size,
-                                    1, self.num_filters]
-                    W = tf.Variable(tf.truncated_normal(
-                        filter_shape, stddev=0.1), name="W")
-                    conv_s1 = tf.nn.conv2d(seq_expand, W, strides=[1, 1, 1, 1],
+                    if block == "holistic":
+                        filter_shape = [ws, self.embedding_size,
+                                        1, self.num_filters]
+                    if block == "per_dimension":
+                        filter_shape = [ws, 1,
+                                        1, self.num_filters]
+                    weight = tf.Variable(tf.truncated_normal(
+                        filter_shape, stddev=0.1), name="weight")
+                    conv_s1 = tf.nn.conv2d(seq_expand, weight,
+                                           strides=[1, 1, 1, 1],
                                            padding="VALID", name="conv")
                     # pool layers
                     ksize = [1, self.seq_length - ws + 1, 1, 1]
@@ -145,18 +181,41 @@ class MPCNNModel(object):
                         pool_out = -tf.nn.max_pool(
                             -conv_s1, ksize, strides=[1, 1, 1, 1],
                             padding='VALID', name="pool")
-                    pool_out_expand = tf.expand_dims(
-                        tf.squeeze(pool_out, [1, 2]), -1)
+                    pool_out_expand = tf.transpose(
+                                        tf.squeeze(pool_out, [1]), [0, 2, 1])
                     ws_pool.append(pool_out_expand)
             m_pool.append(ws_pool)
         return tf.concat(m_pool, 3)
 
+    def _cal_block(self, m1_pool, m2_pool, block="holistic"):
+        # for holistic:split 0:max, 1:mean, 2:min
+        # for per_dimension:split 0:max, 1:mean
+        split1 = [tf.squeeze(sp, [0])
+                  for sp in tf.split(m1_pool, m1_pool.shape.as_list()[0], 0)]
+        split2 = [tf.squeeze(sp, [0])
+                  for sp in tf.split(m2_pool, m2_pool.shape.as_list()[0], 0)]
+        cal_feah = []
+        cal_feab = []
+        for i in range(len(split1)):
+            # calculate feah holistic or per_dimension
+            cal_sub_feah = tf.reduce_sum(tf.multiply(split1[i], split2[i],
+                                         name="cal_feah_"+block+str(i)),
+                                         axis=2)
+            # calculate feab holistic or per_dimension
+            cal_sub_feab = tf.reduce_sum(tf.multiply(split1[i], split2[i],
+                                         name="cal_feab_"+block+str(i)),
+                                         axis=1)
+            cal_feah.append(cal_sub_feah)
+            cal_feab.append(cal_sub_feab)
+        feah = tf.concat(cal_feah, axis=1, name="feah_"+block+"_concat")
+        feab = tf.concat(cal_feab, axis=1, name="feab_"+block+"_concat")
 
+        return feah, feab
 
     def _build_fc(self):
         weight = tf.get_variable(
             "weight",
-            shape=[self.num_filters_total, 2],
+            shape=[self.cnn_out.shape.as_list()[1], 2],
             initializer=tf.contrib.layers.xavier_initializer())
         bias = tf.Variable(tf.constant(0.1, shape=[2]), name="bias")
         self.l2_loss += tf.nn.l2_loss(weight)
